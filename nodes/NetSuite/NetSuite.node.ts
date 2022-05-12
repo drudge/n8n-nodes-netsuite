@@ -4,6 +4,7 @@ import {
 	INodeType,
 	INodeTypeDescription,
 	LoggerProxy as Logger,
+	NodeApiError,
 } from 'n8n-workflow';
 
 import {
@@ -30,7 +31,7 @@ const handleNetsuiteResponse = function (fns: IExecuteFunctions, response: any) 
 		}
 		if (fns.continueOnFail() !== true) {
 			const code = webCode || restletCode;
-			const error = new Error(code);
+			const error = new NodeApiError(fns.getNode(), response.body);
 			error.message = message;
 			throw error;
 		} else {
