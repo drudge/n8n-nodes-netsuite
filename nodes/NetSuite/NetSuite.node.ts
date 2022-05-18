@@ -1,23 +1,30 @@
+import { debuglog } from 'util';
 import { IExecuteFunctions } from 'n8n-core';
 import {
 	IDataObject,
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	IRunExecutionData,
-	NodeApiError,
 	LoggerProxy as Logger,
+	NodeApiError,
 } from 'n8n-workflow';
+
 import {
-	INetSuiteCredentials, INetSuiteOperationOptions,
+	INetSuiteCredentials, INetSuiteOperationOptions, INetSuiteRequestOptions, NetSuiteRequestType,
 } from './NetSuite.node.types';
 
+import {
+	nodeDescription,
+} from './NetSuite.node.options';
+
 import { makeRequest } from '@fye/netsuite-rest-api';
-import { fsync } from 'fs';
-import { connected } from 'process';
+import * as pLimit from 'p-limit';
+
+const debug = debuglog('n8n-nodes-netsuite');
 
 const handleNetsuiteResponse = function (fns: IExecuteFunctions, response: any) {
-	// console.log(`Netsuite response:`, response.body);
+	// debug(response);
+	debug(`Netsuite response:`, response.statusCode, response.body);
 	let body: any = {};
 	const {
 		title: webTitle = undefined,
@@ -33,7 +40,7 @@ const handleNetsuiteResponse = function (fns: IExecuteFunctions, response: any) 
 		}
 		if (fns.continueOnFail() !== true) {
 			const code = webCode || restletCode;
-			const error = new Error(code);
+			const error = new NodeApiError(fns.getNode(), response.body);
 			error.message = message;
 			throw error;
 		} else {
@@ -43,7 +50,30 @@ const handleNetsuiteResponse = function (fns: IExecuteFunctions, response: any) 
 		}
 	} else {
 		body = response.body;
+		if ([ 'POST', 'PATCH', 'DELETE' ].includes(response.request.options.method)) {
+			body = {};
+			if (response.headers['x-netsuite-propertyvalidation']) {
+				body.propertyValidation = response.headers['x-netsuite-propertyvalidation'].split(',');
+			}
+			if (response.headers['x-n-operationid']) {
+				body.operationId = response.headers['x-n-operationid'];
+			}
+			if (response.headers['x-netsuite-jobid']) {
+				body.jobId = response.headers['x-netsuite-jobid'];
+			}
+			if (response.headers['location']) {
+				body.links = [
+					{
+						rel: 'self',
+						href: response.headers['location'],
+					},
+				];
+				body.id = response.headers['location'].split('/').pop();
+			}
+			body.success = response.statusCode === 204;
+		}
 	}
+	// debug(body);
 	return { json: body };
 };
 
@@ -57,262 +87,65 @@ const getConfig = (credentials: INetSuiteCredentials) => ({
 });
 
 export class NetSuite implements INodeType {
-	description: INodeTypeDescription = {
-		displayName: 'NetSuite',
-		name: 'netsuite',
-		group: ['netsuite', 'erp'],
-		version: 1,
-		description: 'NetSuite REST API',
-		defaults: {
-			name: 'NetSuite',
-			color: '#125580',
-		},
-		icon: 'file:netSuite.svg',
-		inputs: ['main'],
-		outputs: ['main'],
-		credentials: [
-			{
-				name: 'netsuite',
-				required: true,
-			},
-		],
-		properties: [
-			{
-				displayName: 'Operation',
-				name: 'operation',
-				type: 'options',
-				options: [
-					{
-						name: 'Get Records',
-						value: 'getRecords',
-					},
-					{
-						name: 'Get Record',
-						value: 'getRecord',
-					},
-					{
-						name: 'Update Record',
-						value: 'updateRecord',
-					},
-					{
-						name: 'Delete Record',
-						value: 'deleteRecord',
-					},
-					{
-						name: 'Execute SuiteQL',
-						value: 'runSuiteQL',
-					},
-					{
-						name: 'Get Workbook',
-						value: 'getWorkbook',
-					},
-					{
-						name: 'Raw Request',
-						value: 'rawRequest',
-					},
-				],
-				default: 'getRecords',
-			},
-			{
-				displayName: 'Record Type',
-				name: 'recordType',
-				type: 'options',
-				options: [
-					{ name: 'Assembly Item', value: 'assemblyItem' },
-					{ name: 'Billing Account', value: 'billingAccount' },
-					{ name: 'Calendar Event', value: 'calendarEvent' },
-					{ name: 'Cash Sale', value: 'cashSale' },
-					{ name: 'Charge', value: 'charge' },
-					{ name: 'Contact', value: 'contact' },
-					{ name: 'Contact Category', value: 'contactCategory' },
-					{ name: 'Contact Role', value: 'contactRole' },
-					{ name: 'Credit Memo', value: 'creditMemo' },
-					{ name: 'Customer', value: 'customer' },
-					{ name: 'Customer Subsidiary Relationship', value: 'customerSubsidiaryRelationship' },
-					{ name: 'Email Template', value: 'emailTemplate' },
-					{ name: 'Employee', value: 'employee' },
-					{ name: 'Inventory Item', value: 'inventoryItem' },
-					{ name: 'Invoice', value: 'invoice' },
-					{ name: 'Item Fulfillment', value: 'itemFulfillment' },
-					{ name: 'Journal Entry', value: 'journalEntry' },
-					{ name: 'Message', value: 'message' },
-					{ name: 'Non-Inventory Sale Item', value: 'nonInventorySaleItem' },
-					{ name: 'Phone Call', value: 'phoneCall' },
-					{ name: 'Price Book', value: 'priceBook' },
-					{ name: 'Price Plan', value: 'pricePlan' },
-					{ name: 'Purchase Order', value: 'purchaseOrder' },
-					{ name: 'Sales Order', value: 'salesOrder' },
-					{ name: 'Subscription', value: 'subscription' },
-					{ name: 'Subscription Change Order', value: 'subscriptionChangeOrder' },
-					{ name: 'Subscription Line', value: 'subscriptionLine' },
-					{ name: 'Subscription Plan', value: 'subscriptionPlan' },
-					{ name: 'Subscription Term', value: 'subscriptionTerm' },
-					{ name: 'Subsidiary', value: 'subsidiary' },
-					{ name: 'Task', value: 'task' },
-					{ name: 'Time Bill', value: 'timeBill' },
-					{ name: 'Usage', value: 'usage' },
-					{ name: 'Vendor', value: 'vendor' },
-					{ name: 'Vendor Bill', value: 'vendorBill' },
-					{ name: 'Vendor Subsidiary Relationship', value: 'vendorSubsidiaryRelationship' },
-				],
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecord',
-							'updateRecord',
-							'deleteRecord',
-							'getRecords',
-						],
-					},
-				},
-				default: 'salesOrder',
-			},
-			{
-				displayName: 'ID',
-				name: 'internalId',
-				type: 'string',
-				required: true,
-				default: '',
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecord',
-						],
-					},
-				},
-				description: 'The internal identifier of the record. Prefix with eid: to use the external identifier.',
-			},
-			{
-				displayName: 'Query',
-				name: 'query',
-				type: 'string',
-				required: false,
-				default: '',
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecords',
-							'runSuiteQL',
-							'rawRequest',
-						],
-					},
-				},
-			},
-			{
-				displayName: 'Restrict Returned Fields',
-				name: 'fields',
-				type: 'string',
-				required: false,
-				default: '',
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecord',
-						],
-					},
-				},
-				description: 'Optionally return only the specified fields and sublists in the response.',
-			},
-			{
-				displayName: 'Expand Sub-resources',
-				name: 'expandSubResources',
-				type: 'boolean',
-				required: true,
-				default: false,
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecord',
-						],
-					},
-				},
-				description: 'If true, automatically expands all sublists, sublist lines, and subrecords on this record.',
-			},
-			{
-				displayName: 'Simple Enum Format',
-				name: 'simpleEnumFormat',
-				type: 'boolean',
-				required: true,
-				// eslint-disable-next-line n8n-nodes-base/node-param-default-wrong-for-simplify
-				default: false,
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecord',
-						],
-					},
-				},
-				description: 'If true, returns enumeration values in a format that only shows the internal ID value.',
-			},
-			{
-				displayName: 'API Version',
-				name: 'version',
-				type: 'options',
-				options: [
-					{
-						name: 'v1',
-						value: 'v1',
-					},
-				],
-				displayOptions: {
-					show: {
-						operation: [
-							'getRecord',
-							'getRecords',
-							'updateRecord',
-							'deleteRecord',
-						],
-					},
-				},
-				default: 'v1',
-			},
-		],
-	};
+	description: INodeTypeDescription = nodeDescription;
 
-	static async getRecords(options: INetSuiteOperationOptions): Promise<INodeExecutionData[]> {
+	static async listRecords(options: INetSuiteOperationOptions): Promise<INodeExecutionData[]> {
 		const { fns, credentials, itemIndex } = options;
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
 		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
-		const queryLimit = fns.getNodeParameter('queryLimit', itemIndex, 10) as string;
+		const returnAll = fns.getNodeParameter('returnAll', itemIndex) as boolean;
+		const query = fns.getNodeParameter('query', itemIndex) as string;
+		let limit = 100;
+		let offset = 0;
 		let hasMore = true;
-		let nextUrl = `services/rest/record/${apiVersion}/${recordType}?limit=${queryLimit}&offset=0`;
-		let method = 'POST';
-		let requestType = 'suiteql';
-		const requestData = {
-			method: 'GET',
-			requestType: 'record',
-			nextUrl,
-		};
+		let method = 'GET';
+		let nextUrl;
+		let requestType = NetSuiteRequestType.Record;
+		const params = new URLSearchParams();
 		const returnData: INodeExecutionData[] = [];
-
-		while (hasMore === true) {
-			const response = await makeRequest(getConfig(credentials), {
-			  method,
-			  requestType,
-			  nextUrl,
-			});
+		let prefix = query ? `?${query}` : '';
+		if (returnAll !== true) {
+			prefix = query ? `${prefix}&` : '?';
+			limit = fns.getNodeParameter('limit', itemIndex) as number;
+			offset = fns.getNodeParameter('offset', itemIndex) as number;
+			params.set('limit', String(limit));
+			params.set('offset', String(offset));
+			prefix += params.toString();
+		}
+		const requestData: INetSuiteRequestOptions = {
+			method,
+			requestType,
+			path: `services/rest/record/${apiVersion}/${recordType}${prefix}`,
+		};
+		// debug('requestData', requestData);
+		while ((returnAll || returnData.length < limit) && hasMore === true) {			
+			const response = await makeRequest(getConfig(credentials), requestData);
 			const body: any = handleNetsuiteResponse(fns, response);
-			const { hasMore: doContinue, items, links } = body;
+			const { hasMore: doContinue, items, links } = body.json;
 			if (doContinue) {
 			  nextUrl = links.find((link: any) => link.rel === 'next').href;
+			  requestData.nextUrl = nextUrl;
 			}
 			if (Array.isArray(items)) {
-				returnData.push(...items.map(item => ({ json: item })));
+				for (const json of items) {
+					if (returnAll || returnData.length < limit) {
+						returnData.push({ json });
+					}
+				}
 			}
-			hasMore = doContinue;
+			hasMore = doContinue && (returnAll || returnData.length < limit);
 		  }
 		return returnData;
 	}
 
 	static async getRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
-		const { fns, credentials, itemIndex } = options;
+		const { item, fns, credentials, itemIndex } = options;
 		const params = new URLSearchParams();
 		const expandSubResources = fns.getNodeParameter('expandSubResources', itemIndex) as boolean;
 		const simpleEnumFormat = fns.getNodeParameter('simpleEnumFormat', itemIndex) as boolean;
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
 		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
 		const internalId = fns.getNodeParameter('internalId', itemIndex) as string;
-		
 		if (expandSubResources) {
 			params.append('expandSubResources', 'true');
 		}
@@ -322,29 +155,131 @@ export class NetSuite implements INodeType {
 		const q = params.toString();
 		const requestData = {
 			method: 'GET',
-			requestType: 'record',
+			requestType: NetSuiteRequestType.Record,
 			path: `services/rest/record/${apiVersion}/${recordType}/${internalId}${q ? `?${q}` : ''}`,
+		};
+		const response = await makeRequest(getConfig(credentials), requestData);
+		if (item) response.body.orderNo = item.json.orderNo;
+		return handleNetsuiteResponse(fns, response);
+	}
+
+	static async removeRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
+		const { fns, credentials, itemIndex } = options;
+		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
+		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const internalId = fns.getNodeParameter('internalId', itemIndex) as string;
+		const requestData = {
+			method: 'DELETE',
+			requestType: NetSuiteRequestType.Record,
+			path: `services/rest/record/${apiVersion}/${recordType}/${internalId}`,
 		};
 		const response = await makeRequest(getConfig(credentials), requestData);
 		return handleNetsuiteResponse(fns, response);
 	}
 
+	static async insertRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
+		const { fns, credentials, itemIndex, item } = options;
+		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
+		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const query = item ? item.json : undefined;
+		const requestData: INetSuiteRequestOptions = {
+			method: 'POST',
+			requestType: NetSuiteRequestType.Record,
+			path: `services/rest/record/${apiVersion}/${recordType}`,
+		};
+		if (query) requestData.query = query;
+		const response = await makeRequest(getConfig(credentials), requestData);
+		return handleNetsuiteResponse(fns, response);
+	}
+
+	static async updateRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
+		const { fns, credentials, itemIndex, item } = options;
+		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
+		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const internalId = fns.getNodeParameter('internalId', itemIndex) as string;
+		const query = item ? item.json : undefined;
+		const requestData: INetSuiteRequestOptions = {
+			method: 'PATCH',
+			requestType: NetSuiteRequestType.Record,
+			path: `services/rest/record/${apiVersion}/${recordType}/${internalId}`,
+		};
+		if (query) requestData.query = query;
+		const response = await makeRequest(getConfig(credentials), requestData);
+		return handleNetsuiteResponse(fns, response);
+	}
+
+	static async rawRequest(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
+		const { fns, credentials, itemIndex, item } = options;
+		const path = fns.getNodeParameter('path', itemIndex) as string;
+		const method = fns.getNodeParameter('method', itemIndex) as string;
+		const body = fns.getNodeParameter('body', itemIndex) as string;
+		const requestType = fns.getNodeParameter('requestType', itemIndex) as NetSuiteRequestType;
+		const query = body || (item ? item.json : undefined);
+		const requestData: INetSuiteRequestOptions = {
+			method,
+			requestType,
+			path,
+		};
+		if (query && !['GET', 'HEAD', 'OPTIONS'].includes(method)) requestData.query = query;
+		// debug('requestData', requestData);
+		const response = await makeRequest(getConfig(credentials), requestData);
+		return { 
+			json: {
+				statusCode: response.statusCode,
+				headers: response.headers,
+				body: response.body,
+			},
+		};
+	}
+
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const credentials: INetSuiteCredentials = (await this.getCredentials('netsuite')) as INetSuiteCredentials;
 		const operation = this.getNodeParameter('operation', 0) as string;
-		let items: INodeExecutionData[] = this.getInputData();
-		let returnData: INodeExecutionData[] = [];
+		const items: INodeExecutionData[] = this.getInputData();
+		const returnData: INodeExecutionData[] = [];
+		const promises = [];
+		const options = this.getNodeParameter('options', 0) as IDataObject;
+		const concurrency = options.concurrency as number || 1;
+		const limit = pLimit(concurrency);
 
 		for (let itemIndex: number = 0; itemIndex < items.length; itemIndex++) {
-			console.log(`Processing ${operation} for ${itemIndex+1} of ${items.length}`);
 			const item: INodeExecutionData = items[itemIndex];
-			if (operation === 'getRecord') {
-				const record = await NetSuite.getRecord({fns: this, credentials, itemIndex});
-				record.json.orderNo = item.json.orderNo;
-				returnData.push(record);
-			} else if (operation == 'getRecords') {
-				const records = await NetSuite.getRecords({fns: this, credentials, itemIndex});
-				returnData.push(...records);
+			let data: INodeExecutionData | INodeExecutionData[];
+
+			promises.push(limit(async () =>{
+				debug(`Processing ${operation} for ${itemIndex+1} of ${items.length}`);
+				if (operation === 'getRecord') {
+					data = await NetSuite.getRecord({ item, fns: this, credentials, itemIndex});
+				} else if (operation === 'listRecords') {
+					data = await NetSuite.listRecords({ item, fns: this, credentials, itemIndex});
+				} else if (operation === 'removeRecord') {
+					data = await NetSuite.removeRecord({ item, fns: this, credentials, itemIndex});
+				} else if (operation === 'insertRecord') {
+					data = await NetSuite.insertRecord({ item, fns: this, credentials, itemIndex});
+				} else if (operation === 'updateRecord') {
+					data = await NetSuite.updateRecord({ item, fns: this, credentials, itemIndex});
+				} else if (operation === 'rawRequest') {
+					data = await NetSuite.rawRequest({ item, fns: this, credentials, itemIndex});
+				} else {
+					const error = `The operation "${operation}" is not supported!`;
+					if (this.continueOnFail() !== true) {
+						throw new Error(error);
+					} else {
+						data = { json: { error } };
+					}
+				}
+				return data;
+			}));
+		}
+
+		const results = await Promise.all(promises);
+		for await (const result of results) {
+			if (result) {
+				if (Array.isArray(result)) {
+					returnData.push(...result);
+				} else {
+					returnData.push(result);
+				}
 			}
 		}
 
