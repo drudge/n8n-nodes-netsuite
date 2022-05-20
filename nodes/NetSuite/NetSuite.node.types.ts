@@ -8,6 +8,7 @@ export type INetSuiteCredentials = {
     consumerSecret: string;
     tokenKey: string;
     tokenSecret: string;
+    netsuiteQueryLimit?: number;
 };
 
 export type INetSuiteOperationOptions = {

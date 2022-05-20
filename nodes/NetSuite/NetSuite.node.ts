@@ -51,7 +51,7 @@ const handleNetsuiteResponse = function (fns: IExecuteFunctions, response: any) 
 	} else {
 		body = response.body;
 		if ([ 'POST', 'PATCH', 'DELETE' ].includes(response.request.options.method)) {
-			body = {};
+			body = typeof body === 'object' ? response.body : {};
 			if (response.headers['x-netsuite-propertyvalidation']) {
 				body.propertyValidation = response.headers['x-netsuite-propertyvalidation'].split(',');
 			}
@@ -84,6 +84,7 @@ const getConfig = (credentials: INetSuiteCredentials) => ({
 	netsuiteAccountId: credentials.accountId,
 	netsuiteTokenKey: credentials.tokenKey,
 	netsuiteTokenSecret: credentials.tokenSecret,
+	netsuiteQueryLimit: 1000,
 });
 
 export class NetSuite implements INodeType {
@@ -120,6 +121,56 @@ export class NetSuite implements INodeType {
 		// debug('requestData', requestData);
 		while ((returnAll || returnData.length < limit) && hasMore === true) {			
 			const response = await makeRequest(getConfig(credentials), requestData);
+			const body: any = handleNetsuiteResponse(fns, response);
+			const { hasMore: doContinue, items, links } = body.json;
+			if (doContinue) {
+			  nextUrl = links.find((link: any) => link.rel === 'next').href;
+			  requestData.nextUrl = nextUrl;
+			}
+			if (Array.isArray(items)) {
+				for (const json of items) {
+					if (returnAll || returnData.length < limit) {
+						returnData.push({ json });
+					}
+				}
+			}
+			hasMore = doContinue && (returnAll || returnData.length < limit);
+		  }
+		return returnData;
+	}
+
+	static async runSuiteQL(options: INetSuiteOperationOptions): Promise<INodeExecutionData[]> {
+		const { fns, credentials, itemIndex } = options;
+		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
+		const returnAll = fns.getNodeParameter('returnAll', itemIndex) as boolean;
+		const query = fns.getNodeParameter('query', itemIndex) as string;
+		let limit = 1000;
+		let offset = 0;
+		let hasMore = true;
+		let method = 'POST';
+		let nextUrl;
+		let requestType = NetSuiteRequestType.SuiteQL;
+		const params = new URLSearchParams();
+		const returnData: INodeExecutionData[] = [];
+		const config = getConfig(credentials);
+		let prefix = '?';
+		if (returnAll !== true) {
+			limit = fns.getNodeParameter('limit', itemIndex) as number || limit;
+			offset = fns.getNodeParameter('offset', itemIndex) as number;
+			params.set('offset', String(offset));
+		}
+		params.set('limit', String(limit));
+		config.netsuiteQueryLimit = limit;
+		prefix += params.toString();
+		const requestData: INetSuiteRequestOptions = {
+			method,
+			requestType,
+			query,
+			path: `services/rest/query/${apiVersion}/suiteql${prefix}`,
+		};
+		debug('requestData', requestData);
+		while ((returnAll || returnData.length < limit) && hasMore === true) {			
+			const response = await makeRequest(config, requestData);
 			const body: any = handleNetsuiteResponse(fns, response);
 			const { hasMore: doContinue, items, links } = body.json;
 			if (doContinue) {
@@ -260,6 +311,8 @@ export class NetSuite implements INodeType {
 					data = await NetSuite.updateRecord({ item, fns: this, credentials, itemIndex});
 				} else if (operation === 'rawRequest') {
 					data = await NetSuite.rawRequest({ item, fns: this, credentials, itemIndex});
+				} else if (operation === 'runSuiteQL') {
+					data = await NetSuite.runSuiteQL({ item, fns: this, credentials, itemIndex});
 				} else {
 					const error = `The operation "${operation}" is not supported!`;
 					if (this.continueOnFail() !== true) {
