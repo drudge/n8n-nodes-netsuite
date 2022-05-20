@@ -50,10 +50,10 @@ export const nodeDescription: INodeTypeDescription = {
                     name: 'Remove Record',
                     value: 'removeRecord',
                 },
-                // {
-                // 	name: 'Execute SuiteQL',
-                // 	value: 'runSuiteQL',
-                // },
+                {
+                	name: 'Execute SuiteQL',
+                	value: 'runSuiteQL',
+                },
                 // {
                 // 	name: 'Get Workbook',
                 // 	value: 'getWorkbook',
@@ -343,6 +343,7 @@ export const nodeDescription: INodeTypeDescription = {
                 show: {
                     operation: [
                         'listRecords',
+                        'runSuiteQL',
                     ],
                 },
             },
@@ -357,6 +358,7 @@ export const nodeDescription: INodeTypeDescription = {
                 show: {
                     operation: [
                         'listRecords',
+                        'runSuiteQL',
                     ],
                     returnAll: [
                         false,
@@ -378,6 +380,7 @@ export const nodeDescription: INodeTypeDescription = {
                 show: {
                     operation: [
                         'listRecords',
+                        'runSuiteQL',
                     ],
                     returnAll: [
                         false,
@@ -409,6 +412,7 @@ export const nodeDescription: INodeTypeDescription = {
                         'updateRecord',
                         'removeRecord',
                         'createRecord',
+                        'runSuiteQL',
                     ],
                 },
             },
