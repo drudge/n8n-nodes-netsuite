@@ -1,0 +1,21 @@
+{
+	"node": "n8n-nodes-netsuite.netsuite",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": [
+		"Finance & Accounting",
+		"Sales"
+	],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://github.com/drudge/n8n-nodes-netsuite"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/drudge/n8n-nodes-netsuite"
+			}
+		]
+	}
+}

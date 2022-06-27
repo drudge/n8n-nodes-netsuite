@@ -5,12 +5,17 @@ import {
 	INodeExecutionData,
 	INodeType,
 	INodeTypeDescription,
-	LoggerProxy as Logger,
+	JsonObject,
 	NodeApiError,
 } from 'n8n-workflow';
 
 import {
-	INetSuiteCredentials, INetSuiteOperationOptions, INetSuiteRequestOptions, NetSuiteRequestType,
+	INetSuiteCredentials,
+	INetSuiteOperationOptions,
+	INetSuitePagedBody,
+	INetSuiteRequestOptions,
+	INetSuiteResponse,
+	NetSuiteRequestType,
 } from './NetSuite.node.types';
 
 import {
@@ -18,14 +23,16 @@ import {
 } from './NetSuite.node.options';
 
 import { makeRequest } from '@fye/netsuite-rest-api';
+
 import * as pLimit from 'p-limit';
+import { response } from 'express';
 
 const debug = debuglog('n8n-nodes-netsuite');
 
-const handleNetsuiteResponse = function (fns: IExecuteFunctions, response: any) {
+const handleNetsuiteResponse = (fns: IExecuteFunctions, response: INetSuiteResponse) => {
 	// debug(response);
 	debug(`Netsuite response:`, response.statusCode, response.body);
-	let body: any = {};
+	let body: JsonObject = {};
 	const {
 		title: webTitle = undefined,
 		code: restletCode = undefined,
@@ -90,25 +97,34 @@ const getConfig = (credentials: INetSuiteCredentials) => ({
 export class NetSuite implements INodeType {
 	description: INodeTypeDescription = nodeDescription;
 
+	static getRecordType({ fns, itemIndex }: INetSuiteOperationOptions): string {
+		let recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		if (recordType === 'custom') {
+			recordType = fns.getNodeParameter('customRecordTypeScriptId', itemIndex) as string;
+		}
+		return recordType;
+	}
+
 	static async listRecords(options: INetSuiteOperationOptions): Promise<INodeExecutionData[]> {
 		const { fns, credentials, itemIndex } = options;
+		const nodeContext = fns.getContext('node');
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
-		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const recordType = NetSuite.getRecordType(options);
 		const returnAll = fns.getNodeParameter('returnAll', itemIndex) as boolean;
 		const query = fns.getNodeParameter('query', itemIndex) as string;
 		let limit = 100;
 		let offset = 0;
 		let hasMore = true;
-		let method = 'GET';
+		const method = 'GET';
 		let nextUrl;
-		let requestType = NetSuiteRequestType.Record;
+		const requestType = NetSuiteRequestType.Record;
 		const params = new URLSearchParams();
 		const returnData: INodeExecutionData[] = [];
 		let prefix = query ? `?${query}` : '';
 		if (returnAll !== true) {
 			prefix = query ? `${prefix}&` : '?';
-			limit = fns.getNodeParameter('limit', itemIndex) as number;
-			offset = fns.getNodeParameter('offset', itemIndex) as number;
+			limit = fns.getNodeParameter('limit', itemIndex) as number || limit;
+			offset = fns.getNodeParameter('offset', itemIndex) as number || offset;
 			params.set('limit', String(limit));
 			params.set('offset', String(offset));
 			prefix += params.toString();
@@ -118,14 +134,17 @@ export class NetSuite implements INodeType {
 			requestType,
 			path: `services/rest/record/${apiVersion}/${recordType}${prefix}`,
 		};
+		nodeContext.hasMore = hasMore;
+		nodeContext.count = limit;
+		nodeContext.offset = offset;
 		// debug('requestData', requestData);
 		while ((returnAll || returnData.length < limit) && hasMore === true) {			
 			const response = await makeRequest(getConfig(credentials), requestData);
-			const body: any = handleNetsuiteResponse(fns, response);
-			const { hasMore: doContinue, items, links } = body.json;
+			const body: JsonObject = handleNetsuiteResponse(fns, response);
+			const { hasMore: doContinue, items, links, offset, count, totalResults } = (body.json as INetSuitePagedBody);
 			if (doContinue) {
-			  nextUrl = links.find((link: any) => link.rel === 'next').href;
-			  requestData.nextUrl = nextUrl;
+				nextUrl = (links.find((link) => link.rel === 'next') || {}).href;
+				requestData.nextUrl = nextUrl;
 			}
 			if (Array.isArray(items)) {
 				for (const json of items) {
@@ -135,28 +154,36 @@ export class NetSuite implements INodeType {
 				}
 			}
 			hasMore = doContinue && (returnAll || returnData.length < limit);
-		  }
+			nodeContext.hasMore = doContinue;
+			nodeContext.count = count;
+			nodeContext.offset = offset;
+			nodeContext.totalResults = totalResults;
+			if (requestData.nextUrl) {
+				nodeContext.nextUrl = requestData.nextUrl;
+			}
+		}
 		return returnData;
 	}
 
 	static async runSuiteQL(options: INetSuiteOperationOptions): Promise<INodeExecutionData[]> {
 		const { fns, credentials, itemIndex } = options;
+		const nodeContext = fns.getContext('node');
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
 		const returnAll = fns.getNodeParameter('returnAll', itemIndex) as boolean;
 		const query = fns.getNodeParameter('query', itemIndex) as string;
 		let limit = 1000;
 		let offset = 0;
 		let hasMore = true;
-		let method = 'POST';
+		const method = 'POST';
 		let nextUrl;
-		let requestType = NetSuiteRequestType.SuiteQL;
+		const requestType = NetSuiteRequestType.SuiteQL;
 		const params = new URLSearchParams();
 		const returnData: INodeExecutionData[] = [];
 		const config = getConfig(credentials);
 		let prefix = '?';
 		if (returnAll !== true) {
 			limit = fns.getNodeParameter('limit', itemIndex) as number || limit;
-			offset = fns.getNodeParameter('offset', itemIndex) as number;
+			offset = fns.getNodeParameter('offset', itemIndex) as number || offset;
 			params.set('offset', String(offset));
 		}
 		params.set('limit', String(limit));
@@ -168,14 +195,17 @@ export class NetSuite implements INodeType {
 			query,
 			path: `services/rest/query/${apiVersion}/suiteql${prefix}`,
 		};
+		nodeContext.hasMore = hasMore;
+		nodeContext.count = limit;
+		nodeContext.offset = offset;
 		debug('requestData', requestData);
 		while ((returnAll || returnData.length < limit) && hasMore === true) {			
 			const response = await makeRequest(config, requestData);
-			const body: any = handleNetsuiteResponse(fns, response);
-			const { hasMore: doContinue, items, links } = body.json;
+			const body: JsonObject = handleNetsuiteResponse(fns, response);
+			const { hasMore: doContinue, items, links, count, totalResults, offset } = (body.json as INetSuitePagedBody);
 			if (doContinue) {
-			  nextUrl = links.find((link: any) => link.rel === 'next').href;
-			  requestData.nextUrl = nextUrl;
+				nextUrl = (links.find((link) => link.rel === 'next') || {}).href;
+				requestData.nextUrl = nextUrl;
 			}
 			if (Array.isArray(items)) {
 				for (const json of items) {
@@ -185,7 +215,14 @@ export class NetSuite implements INodeType {
 				}
 			}
 			hasMore = doContinue && (returnAll || returnData.length < limit);
-		  }
+			nodeContext.hasMore = doContinue;
+			nodeContext.count = count;
+			nodeContext.offset = offset;
+			nodeContext.totalResults = totalResults;
+			if (requestData.nextUrl) {
+				nodeContext.nextUrl = requestData.nextUrl;
+			}
+		}
 		return returnData;
 	}
 
@@ -195,7 +232,7 @@ export class NetSuite implements INodeType {
 		const expandSubResources = fns.getNodeParameter('expandSubResources', itemIndex) as boolean;
 		const simpleEnumFormat = fns.getNodeParameter('simpleEnumFormat', itemIndex) as boolean;
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
-		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const recordType = NetSuite.getRecordType(options);
 		const internalId = fns.getNodeParameter('internalId', itemIndex) as string;
 		if (expandSubResources) {
 			params.append('expandSubResources', 'true');
@@ -217,7 +254,7 @@ export class NetSuite implements INodeType {
 	static async removeRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
 		const { fns, credentials, itemIndex } = options;
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
-		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const recordType = NetSuite.getRecordType(options);
 		const internalId = fns.getNodeParameter('internalId', itemIndex) as string;
 		const requestData = {
 			method: 'DELETE',
@@ -246,7 +283,7 @@ export class NetSuite implements INodeType {
 	static async updateRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
 		const { fns, credentials, itemIndex, item } = options;
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
-		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const recordType = NetSuite.getRecordType(options);
 		const internalId = fns.getNodeParameter('internalId', itemIndex) as string;
 		const query = item ? item.json : undefined;
 		const requestData: INetSuiteRequestOptions = {
@@ -261,11 +298,19 @@ export class NetSuite implements INodeType {
 
 	static async rawRequest(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
 		const { fns, credentials, itemIndex, item } = options;
-		const path = fns.getNodeParameter('path', itemIndex) as string;
+		const nodeContext = fns.getContext('node');
+		let path = fns.getNodeParameter('path', itemIndex) as string;
 		const method = fns.getNodeParameter('method', itemIndex) as string;
 		const body = fns.getNodeParameter('body', itemIndex) as string;
 		const requestType = fns.getNodeParameter('requestType', itemIndex) as NetSuiteRequestType;
 		const query = body || (item ? item.json : undefined);
+		const nodeOptions = fns.getNodeParameter('options', 0) as IDataObject;
+
+		if (path && (path.startsWith('https://') || path.startsWith('http://'))) {
+			const url = new URL(path);
+			path = `${url.pathname.replace(/^\//, '')}${url.search || ''}`;
+		}
+
 		const requestData: INetSuiteRequestOptions = {
 			method,
 			requestType,
@@ -274,13 +319,25 @@ export class NetSuite implements INodeType {
 		if (query && !['GET', 'HEAD', 'OPTIONS'].includes(method)) requestData.query = query;
 		// debug('requestData', requestData);
 		const response = await makeRequest(getConfig(credentials), requestData);
-		return { 
-			json: {
-				statusCode: response.statusCode,
-				headers: response.headers,
-				body: response.body,
-			},
-		};
+
+		if (response.body) {
+			nodeContext.hasMore = response.body.hasMore;
+			nodeContext.count = response.body.count;
+			nodeContext.offset = response.body.offset;
+			nodeContext.totalResults = response.body.totalResults;
+		}
+
+		if (nodeOptions.fullResponse) {
+			return { 
+				json: {
+					statusCode: response.statusCode,
+					headers: response.headers,
+					body: response.body,
+				},
+			};
+		} else {
+			return { json: response.body };
+		}
 	}
 
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
@@ -293,7 +350,7 @@ export class NetSuite implements INodeType {
 		const concurrency = options.concurrency as number || 1;
 		const limit = pLimit(concurrency);
 
-		for (let itemIndex: number = 0; itemIndex < items.length; itemIndex++) {
+		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			const item: INodeExecutionData = items[itemIndex];
 			let data: INodeExecutionData | INodeExecutionData[];
 
