@@ -268,7 +268,7 @@ export class NetSuite implements INodeType {
 	static async insertRecord(options: INetSuiteOperationOptions): Promise<INodeExecutionData> {
 		const { fns, credentials, itemIndex, item } = options;
 		const apiVersion = fns.getNodeParameter('version', itemIndex) as string;
-		const recordType = fns.getNodeParameter('recordType', itemIndex) as string;
+		const recordType = NetSuite.getRecordType(options);
 		const query = item ? item.json : undefined;
 		const requestData: INetSuiteRequestOptions = {
 			method: 'POST',
