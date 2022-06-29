@@ -2,8 +2,19 @@
 
 ![n8n.io - Workflow Automation](https://raw.githubusercontent.com/n8n-io/n8n/master/assets/n8n-logo.png)
 
-n8n node for NetSuite using the REST API.
+n8n node for interacting with NetSuite using [SuiteTalk REST Web Services](https://docs.oracle.com/en/cloud/saas/netsuite/ns-online-help/chapter_1540391670.html).
 
+## How to install
+
+To get started install the package in your n8n root directory:
+
+`npm install n8n-nodes-netsuite`
+
+
+For Docker-based deployments, add the following line before the font installation command in your [n8n Dockerfile](https://github.com/n8n-io/n8n/blob/master/docker/images/n8n/Dockerfile):
+
+
+`RUN cd /usr/local/lib/node_modules/n8n && npm install n8n-nodes-netsuite`
 
 ## License
 
