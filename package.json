@@ -1,6 +1,6 @@
 {
     "name": "n8n-nodes-netsuite",
-    "version": "0.7.2",
+    "version": "0.7.3",
     "description": "n8n node for NetSuite using the REST API",
     "license": "MIT",
     "homepage": "https://github.com/drudge/n8n-nodes-netsuite",
@@ -24,6 +24,16 @@
     },
     "files": [
         "dist"
+    ],
+    "keywords": [
+        "n8n",
+        "node",
+        "netsuite",
+        "rest",
+        "api",
+        "suitetalk",
+        "n8n-node",
+        "n8n-community-node-package"
     ],
     "n8n": {
         "credentials": [
