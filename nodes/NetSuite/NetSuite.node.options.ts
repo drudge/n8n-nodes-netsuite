@@ -199,6 +199,7 @@ export const nodeDescription: INodeTypeDescription = {
 				{ name: 'Vendor', value: 'vendor' },
 				{ name: 'Vendor Bill', value: 'vendorBill' },
 				{ name: 'Vendor Subsidiary Relationship', value: 'vendorSubsidiaryRelationship' },
+				{ name: 'Opportunity (BETA)', value: 'opportunity'},
 			],
 			displayOptions: {
 				show: {
