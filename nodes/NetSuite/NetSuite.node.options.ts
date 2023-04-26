@@ -182,6 +182,7 @@ export const nodeDescription: INodeTypeDescription = {
 				{ name: 'Journal Entry', value: 'journalEntry' },
 				{ name: 'Message', value: 'message' },
 				{ name: 'Non-Inventory Sale Item', value: 'nonInventorySaleItem' },
+				{ name: 'Opportunity (BETA)', value: 'opportunity'},
 				{ name: 'Phone Call', value: 'phoneCall' },
 				{ name: 'Price Book', value: 'priceBook' },
 				{ name: 'Price Plan', value: 'pricePlan' },
