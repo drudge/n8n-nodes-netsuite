@@ -24,8 +24,7 @@ import {
 
 import { makeRequest } from '@fye/netsuite-rest-api';
 
-import * as pLimit from 'p-limit';
-import { response } from 'express';
+import pLimit from 'p-limit';
 
 const debug = debuglog('n8n-nodes-netsuite');
 
@@ -35,7 +34,7 @@ const handleNetsuiteResponse = (fns: IExecuteFunctions, response: INetSuiteRespo
 	let body: JsonObject = {};
 	const {
 		title: webTitle = undefined,
-		code: restletCode = undefined,
+		// code: restletCode = undefined,
 		'o:errorCode': webCode,
 		'o:errorDetails': webDetails,
 		message: restletMessage = undefined,
@@ -46,7 +45,7 @@ const handleNetsuiteResponse = (fns: IExecuteFunctions, response: INetSuiteRespo
 			message = webDetails[0].detail || message;
 		}
 		if (fns.continueOnFail() !== true) {
-			const code = webCode || restletCode;
+			// const code = webCode || restletCode;
 			const error = new NodeApiError(fns.getNode(), response.body);
 			error.message = message;
 			throw error;
@@ -138,7 +137,7 @@ export class NetSuite implements INodeType {
 		nodeContext.count = limit;
 		nodeContext.offset = offset;
 		// debug('requestData', requestData);
-		while ((returnAll || returnData.length < limit) && hasMore === true) {			
+		while ((returnAll || returnData.length < limit) && hasMore === true) {
 			const response = await makeRequest(getConfig(credentials), requestData);
 			const body: JsonObject = handleNetsuiteResponse(fns, response);
 			const { hasMore: doContinue, items, links, offset, count, totalResults } = (body.json as INetSuitePagedBody);
@@ -199,7 +198,7 @@ export class NetSuite implements INodeType {
 		nodeContext.count = limit;
 		nodeContext.offset = offset;
 		debug('requestData', requestData);
-		while ((returnAll || returnData.length < limit) && hasMore === true) {			
+		while ((returnAll || returnData.length < limit) && hasMore === true) {
 			const response = await makeRequest(config, requestData);
 			const body: JsonObject = handleNetsuiteResponse(fns, response);
 			const { hasMore: doContinue, items, links, count, totalResults, offset } = (body.json as INetSuitePagedBody);
@@ -328,7 +327,7 @@ export class NetSuite implements INodeType {
 		}
 
 		if (nodeOptions.fullResponse) {
-			return { 
+			return {
 				json: {
 					statusCode: response.statusCode,
 					headers: response.headers,

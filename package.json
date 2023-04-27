@@ -1,6 +1,6 @@
 {
     "name": "n8n-nodes-netsuite",
-    "version": "0.7.4",
+    "version": "0.7.5",
     "description": "n8n node for NetSuite using the REST API",
     "license": "MIT",
     "homepage": "https://github.com/drudge/n8n-nodes-netsuite",
@@ -46,11 +46,12 @@
     "devDependencies": {
         "@types/express": "^4.17.6",
         "@types/jest": "^26.0.13",
+        "@types/luxon": "^3.3.0",
         "@types/node": "^14.17.27",
         "@types/request-promise-native": "~1.0.15",
         "@typescript-eslint/eslint-plugin": "^5.29.0",
         "@typescript-eslint/eslint-plugin-tslint": "^5.29.0",
-        "@typescript-eslint/parser": "^5.29.0",
+        "@typescript-eslint/parser": "~5.45",
         "eslint": "^8.18.0",
         "eslint-plugin-import": "^2.26.0",
         "eslint-plugin-jsdoc": "^39.3.3",
@@ -61,7 +62,7 @@
         "n8n-workflow": "*",
         "nodelinter": "^0.1.9",
         "ts-jest": "^26.3.0",
-        "typescript": "~4.3.5"
+        "typescript": "~4.8.4"
     },
     "dependencies": {
         "@fye/netsuite-rest-api": "^2.0.0",
