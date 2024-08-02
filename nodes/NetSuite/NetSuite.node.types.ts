@@ -1,5 +1,4 @@
-import { IExecuteFunctions } from 'n8n-core';
-import { INodeExecutionData, JsonObject } from 'n8n-workflow';
+import { IExecuteFunctions, INodeExecutionData, JsonObject } from 'n8n-workflow';
 
 export type INetSuiteCredentials = {
 	hostname: string;

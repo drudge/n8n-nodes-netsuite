@@ -348,7 +348,6 @@ export const nodeDescription: INodeTypeDescription = {
 			name: 'simpleEnumFormat',
 			type: 'boolean',
 			required: true,
-			// eslint-disable-next-line n8n-nodes-base/node-param-default-wrong-for-simplify
 			default: false,
 			displayOptions: {
 				show: {
@@ -457,7 +456,7 @@ export const nodeDescription: INodeTypeDescription = {
 					default: 1,
 					typeOptions: {
 						minValue: 1,
-					},					// eslint-disable-next-line n8n-nodes-base/node-param-description-wrong-for-limit
+					},
 					description: 'Use control the maximum number of REST requests sent to NetSuite at the same time. The default is 1.',
 				},
 				{
