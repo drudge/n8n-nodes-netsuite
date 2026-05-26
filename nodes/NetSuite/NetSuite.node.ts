@@ -315,7 +315,7 @@ export class NetSuite implements INodeType {
 			requestType,
 			path,
 		};
-		if (query && !['GET', 'HEAD', 'OPTIONS'].includes(method)) requestData.query = query;
+		if (query && !['GET', 'HEAD', 'OPTIONS', 'DELETE'].includes(method)) requestData.query = query;
 		// debug('requestData', requestData);
 		const response = await makeRequest(getConfig(credentials), requestData);
 
